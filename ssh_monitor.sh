@@ -2,11 +2,6 @@
 
 LOGFILE="/var/log/auth.log"
 FAIL2BAN_LOG="/var/log/fail2ban.log"
-OUTPUT_LOG="$HOME/fail2ban/ssh-connection-attempts.log"
-TRACKER="$HOME/fail2ban/.ssh_monitor_lastpos"
-
-mkdir -p "$(dirname "$TRACKER")"
-touch "$OUTPUT_LOG"
 
 color() {
   case "$1" in
@@ -59,50 +54,17 @@ process_line() {
   local output="[$log_date] - $action - User: $user - IP: $ip"
 
   echo -e "$(color "$status" "$output")"
-  echo "$output" >> "$OUTPUT_LOG"
 }
 
-# === Step 1 : read new lines not yet processed ===
 
-CURRENT_SIZE=$(stat -c%s "$LOGFILE")
-if [[ "$1" == "--init" ]]; then
-  LINES=100  # default value
-  if [[ "$2" =~ ^[0-9]+$ ]]; then
-    LINES="$2"
-  fi
-
-  if [[ ! -f "$TRACKER" ]]; then
-    REWIND=$(tail -n "$LINES" "$LOGFILE" | wc -c)
-    LAST_POS=$((CURRENT_SIZE - REWIND))
-    echo "$LAST_POS" > "$TRACKER"
-  fi
-fi
-
-[[ -f "$TRACKER" ]] && LAST_POS=$(cat "$TRACKER") || LAST_POS=0
-
-if (( LAST_POS > CURRENT_SIZE )); then
-  LAST_POS=0  # logrotate may have reset the file
-fi
-
-# Read lines that have not been read yet
-if (( CURRENT_SIZE > LAST_POS )); then
-  tail -c +$((LAST_POS + 1)) "$LOGFILE" | grep -a -E "sshd.*(Failed password|Invalid user|Disconnected|Accepted password|Accepted publickey|Received disconnect|error)" | while read -r line; do
-    process_line "$line"
-  done
-fi
-
-# Update the tracker after the initial read
-stat -c%s "$LOGFILE" > "$TRACKER"
-
-# === Step 2 : continuous monitoring with tail -F ===
+# === Step 1 : continuous monitoring with tail -F ===
 
 tail -Fn0 "$LOGFILE" | grep -a --line-buffered -E "sshd.*(Failed password|Invalid user|Disconnected|Accepted password|Accepted publickey|Received disconnect|error)" | while read -r line; do
   process_line "$line"
-  stat -c%s "$LOGFILE" > "$TRACKER"
 done &
 AUTHLOG_PID=$!
 
-# === Step 3 : monitoring of Fail2ban bans and unbans ===
+# === Step 2 : monitoring of Fail2ban bans and unbans ===
 
 tail -Fn0 "$FAIL2BAN_LOG" | grep -a --line-buffered -E "Ban |Unban " | while read -r ban_line; do
   ban_date=$(echo "$ban_line" | awk '{print $1, $2, $3}')
@@ -119,11 +81,10 @@ tail -Fn0 "$FAIL2BAN_LOG" | grep -a --line-buffered -E "Ban |Unban " | while rea
 
   output="[$ban_date] - $action - IP: $ip - Jail: $jail"
   echo -e "$(color "$status" "$output")"
-  echo "[$ban_date] - $action - IP: $ip - Jail: $jail" >> "$OUTPUT_LOG"
 done &
 FAIL2BAN_PID=$!
 
-# === Step 4 : capture Ctrl+C and kill subprocesses ===
+# === Step 3 : capture Ctrl+C and kill subprocesses ===
 cleanup() {
   echo
   echo "Stop requested, killing processes..."
