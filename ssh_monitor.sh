@@ -89,6 +89,8 @@ cleanup() {
   echo
   echo "Stop requested, killing processes..."
   kill  "$AUTHLOG_PID" "$FAIL2BAN_PID"
+  # Run cron script before exiting
+  bash "$HOME/fail2ban/ssh_monitor_cron.sh"
   exit 0
 }
 
