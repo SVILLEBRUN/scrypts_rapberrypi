@@ -2,7 +2,7 @@
 
 LOGFILE="/var/log/auth.log"
 FAIL2BAN_LOG="/var/log/fail2ban.log"
-OUTPUT_LOG="$HOME/fail2ban/ssh-connection-attempts-test.log"
+OUTPUT_LOG="$HOME/fail2ban/ssh-connection-attempts.log"
 TRACKER_LOG="$HOME/fail2ban/.ssh_monitor_lastpos"
 TRACKER_BAN="$HOME/fail2ban/.ssh_monitor_ban_lastpos"
 NEW_LOGS_TEMP="$HOME/fail2ban/.new_logs_temp"
