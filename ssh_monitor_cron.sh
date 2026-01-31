@@ -164,7 +164,7 @@ TMP_REMAIN="$HOME/fail2ban/.tmp_remain"
 
 CURRENT_MONTH=$(date +"%Y-%m")
 
-# Single-pass split by month with awk (no grep/echo per line — ~100x faster on 400k lines)
+# Single-pass split by month with awk
 awk -v current_month="$CURRENT_MONTH" -v archive_dir="$ARCHIVE_DIR" -v tmp_remain="$TMP_REMAIN" '
     (NR % 50000 == 0) { printf "\rSplitting by month : %d lines...", NR > "/dev/stderr" }
     /^\[[0-9][0-9][0-9][0-9]-[0-9][0-9]/ {
@@ -181,8 +181,8 @@ awk -v current_month="$CURRENT_MONTH" -v archive_dir="$ARCHIVE_DIR" -v tmp_remai
     END { if (NR > 0) printf "\rSplitting by month : %d lines done.\n", NR > "/dev/stderr" }
 ' "$OUTPUT_LOG"
 
-# Discover which months were archived (from created .tmp_*.log files)
-# Compress and archive each month found (merge with existing archive if any)
+
+# Compress and archive each month (merge with existing archive if any)
 month_list=""
 for f in "$ARCHIVE_DIR"/.tmp_*.log; do
     [[ -f "$f" ]] || continue
