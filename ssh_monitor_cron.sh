@@ -154,3 +154,64 @@ if [[ -s "$NEW_LOGS_TEMP" ]]; then
   rm -f "$NEW_LOGS_TEMP" "$SORTED_NEW"
 fi
 
+# === MONTHLY ARCHIVING ===
+echo "Starting monthly archiving..."
+ARCHIVE_DIR="$HOME/fail2ban/archives"
+mkdir -p "$ARCHIVE_DIR"
+
+TMP_REMAIN="$HOME/fail2ban/.tmp_remain"
+> "$TMP_REMAIN"
+
+CURRENT_MONTH=$(date +"%Y-%m")
+
+# Single-pass split by month with awk (no grep/echo per line — ~100x faster on 400k lines)
+awk -v current_month="$CURRENT_MONTH" -v archive_dir="$ARCHIVE_DIR" -v tmp_remain="$TMP_REMAIN" '
+    (NR % 50000 == 0) { printf "\rSplitting by month : %d lines...", NR > "/dev/stderr" }
+    /^\[[0-9][0-9][0-9][0-9]-[0-9][0-9]/ {
+        month = substr($0, 2, 7)
+        if (month != current_month) {
+            f = archive_dir "/.tmp_" month ".log"
+            print >> f
+        } else {
+            print >> tmp_remain
+        }
+        next
+    }
+    { print >> tmp_remain }
+    END { if (NR > 0) printf "\rSplitting by month : %d lines done.\n", NR > "/dev/stderr" }
+' "$OUTPUT_LOG"
+
+# Discover which months were archived (from created .tmp_*.log files)
+# Compress and archive each month found (merge with existing archive if any)
+month_list=""
+for f in "$ARCHIVE_DIR"/.tmp_*.log; do
+    [[ -f "$f" ]] || continue
+    month=$(basename "$f" .log | sed 's/^\.tmp_//')
+    month_list="$month_list $month"
+done
+month_list=$(echo "$month_list" | tr ' ' '\n' | sort -u)
+total_months=$(echo "$month_list" | wc -l)
+current_month_idx=0
+for month in $month_list; do
+    current_month_idx=$((current_month_idx + 1))
+    printf "\rArchiving month %d/%d : %s" "$current_month_idx" "$total_months" "$month"
+    archive_file="$ARCHIVE_DIR/ssh-log-$month.log.gz"
+    tmp_month_file="$ARCHIVE_DIR/.tmp_$month.log"
+    if [[ -f "$archive_file" ]]; then
+        # Merge with existing archive: decompress, cat new lines, sort, recompress
+        tmp_merged=$(mktemp)
+        ( gzip -dc "$archive_file" 2>/dev/null; cat "$tmp_month_file" ) | sort -k1.2,1.20 -o "$tmp_merged"
+        gzip -c "$tmp_merged" > "$archive_file"
+        rm -f "$tmp_merged"
+    else
+        gzip -c "$tmp_month_file" > "$archive_file"
+    fi
+    rm -f "$tmp_month_file"
+    echo " -> $archive_file"
+done
+
+# Replace the main log with only the current month’s lines
+mv "$TMP_REMAIN" "$OUTPUT_LOG"
+
+echo "Archiving completed. Logs stored in $ARCHIVE_DIR"
+
